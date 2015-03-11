@@ -47,6 +47,34 @@ for i = 1:ntrials
 end
  save('../data/noisesimderivsMar4','u_deltad_percentd_derivscale_noise_trial','resid','deltad','percentd','derivsig','noise')
 
+
+% plot fused min residuals, averaged over trials
+    % show image at dist
+    theta = fov/2;
+    imlen = abs(ds)*tand(theta);
+    X = (-imlen+2*imlen/npixels:2*imlen/npixels:imlen)';
+    di = @(d1) f*d1/(d1-f);
+    sigma = @(d1) A/(2*prec)*abs(di(d1)+abs(ds))/abs(di(d1));
+    B = @(d1) exp(-2*(pi*f0*sigma(d1)*-d1/abs(ds))^2);
+    I = @(d1) B(d1)*sin(2*pi*f0*(-d1/abs(ds)*X));
+for p = 1:length(percentd)
+ d1=(percentd(p)+1)*df;
+%  residp = squeeze(abs(resid(:,:,p,:,:,:)));
+ mresidp = mean(squeeze(abs(resid(:,:,p,:,:,:))),5);
+ for x = 1:npixels
+    [m(x) ind(x)] = min(mresidp(x,:));
+ end
+%  [allones ddind derivind noiseind trialind] = ind2sub(size(residp(1,:,:,:,:)),ind);
+ [allones ddind derivind noiseind trialind] = ind2sub(size(mresidp(1,:,:,:)),ind);
+ figure;
+ subplot(5,1,1); plot(I(d1)); xlabel('image at d');
+ subplot(5,1,2); plot(m); xlabel('fused best residuals')
+ subplot(5,1,3); plot(deltad(ddind)); xlabel('delta d - It scale');
+ subplot(5,1,4); plot(derivsig(derivind)); xlabel('dervisigma - Ix scale');
+ subplot(5,1,5); plot(noise(noiseind)); xlabel('noise sigma');
+ suptitle(['do = ' int2str((percentd(p)+1)*df) ', df = ' int2str(df) ', fused best resid']);
+end
+
 % evaluate accuracy
 % u1 = squeeze(u_deltad_percentd_aperture_noise_trial(1,:,:,:,:,:));
 u2 = squeeze(u_deltad_percentd_aperture_noise_trial_littledd(2,:,:,:,:,:));
