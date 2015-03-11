@@ -22,8 +22,8 @@ deltad = .0001:.0001:.001; % Mar11
 %better
 percentd = -.05:.005:.05; % percent d = (do-df)/df 
 noise = [0, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]/255;
-firstderivsig = noise;
-secondderivsig = noise;
+firstderivsig = 1:10;
+secondderivsig = 1:10;
 
 % loop
 for i = 1:ntrials
@@ -53,8 +53,8 @@ for i = 1:ntrials
         save('noisesimMar12r','resid','-v7.3')
     end
 end
- save('noisesimMar12u','u_deltad_percentd_derivscale_noise_trial','deltad','percentd','derivsig','noise')
- save('noisesimMar12r','resid','deltad','percentd','derivsig','noise','-v7.3')
+ save('noisesimMar12u','u_deltad_percentd_derivscale_noise_trial','deltad','percentd','firstderivsig','secondderivsig','noise')
+ save('noisesimMar12r','resid','deltad','percentd','firstderivsig','secondderivsig','noise','-v7.3')
 
 % plot fused min residuals, averaged over trials
     % show image at dist
@@ -65,6 +65,8 @@ end
     sigma = @(d1) A/(2*prec)*abs(di(d1)+abs(ds))/abs(di(d1));
     B = @(d1) exp(-2*(pi*f0*sigma(d1)*-d1/abs(ds))^2);
     I = @(d1) B(d1)*sin(2*pi*f0*(-d1/abs(ds)*X));
+    Ix = @(d1) B(d1)*(2*pi*f0*-d1/abs(ds))*cos(2*pi*f0*(-d1/abs(ds)*X));
+    Ixx = @(d1) -B(d1)*(2*pi*f0*-d1/abs(ds))^2*sin(2*pi*f0*(-d1/abs(ds)*X));
 for p = 1:length(percentd)
  d1=(percentd(p)+1)*df;
 %  residp = squeeze(abs(resid(:,:,p,:,:,:,:)));
@@ -73,14 +75,14 @@ for p = 1:length(percentd)
  for x = 1:npixels
     [m(x) ind(x)] = min(mresidp(x,:));
  end
-%  [allones ddind derivind noiseind trialind] = ind2sub(size(residp(1,:,:,:,:)),ind);
  [allones ddind firstderivind secondderivind noiseind trialind] = ind2sub(size(mresidp(1,:,:,:)),ind);
  figure;
- subplot(5,1,1); plot(I(d1)); xlabel('image at d');
- subplot(5,1,2); plot(m); xlabel('fused best residuals')
- subplot(5,1,3); plot(deltad(ddind)); xlabel('delta d - It scale');
- subplot(5,1,4); plot(derivsig(derivind)); xlabel('dervisigma - Ix scale');
- subplot(5,1,5); plot(noise(noiseind)); xlabel('noise sigma');
+ subplot(6,1,1); plot(I(d1),'k'); xlabel('image at d');
+ subplot(6,1,2); plot(m); xlabel('fused best residuals')
+ subplot(6,1,3); plot(deltad(ddind)); xlabel('delta d - It scale');
+ subplot(6,1,4); plot(Ix(d1),'k'); hold on; plot(firstderivsig(firstderivind)); xlabel('dervisigma - Ix scale');
+ subplot(6,1,5); plot(Ixx(d1),'k'); hold on; plot(secondderivsig(secondderivind)); xlabel('dervisigma - Ix scale');
+ subplot(6,1,6); plot(noise(noiseind)); xlabel('noise sigma');
  suptitle(['do = ' int2str((percentd(p)+1)*df) ', df = ' int2str(df) ', fused best resid']);
 end
 
