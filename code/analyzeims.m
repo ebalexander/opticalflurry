@@ -23,53 +23,60 @@ cEp = (ds*A/df)^2; % partial cE (cE = cEp/Sigma^2, Sigma not really known)
 dtrue = df + (transdist - transdistf)/10000;
 
 timescale = 1:50;
-der1scale = 1:5:100;
-der2scale = 1:10:200;
-for dt = 1:length(timescale)
-    for dx = 1:length(der1scale)
-        for dxx = 2:length(der2scale)
-            dt, dx, dxx
-            clear Ix Ixx Iy Iyy It
+der1scale = 1:5:46;
+der2scale = 1:10:41;
+for dxx = 1:length(der2scale)
+    clear Ixx Iyy
+    % make derivative blurs
+    [g2x g2y] = meshgrid(-6*der2scale(dxx):6*der2scale(dxx),-6*der2scale(dxx):6*der2scale(dxx));
+    derivgauss2 = exp(-(g2x.^2+g2y.^2)/(2*der2scale(dxx)^2));
+    derivgauss2 = derivgauss2./sqrt(sum(sum(derivgauss2.^2)));
+    % make derivative kernels
+    deriv2x = conv2(derivgauss2,[.25, 0, -.5, 0, .25]);
+    deriv2y = conv2(derivgauss2,[.25, 0, -.5, 0, .25]');
+    % take spatial derivs
+    [ho wo zo] = size(I);
+    for i = 2:zo-1 % first and last ims never have valid It
+        Ixx(:,:,i) = conv2(I(:,:,i),deriv2x,'same');
+        Iyy(:,:,i) = conv2(I(:,:,i),deriv2y,'same');
+    end
+    
+    for dx = 2:length(der1scale)
+        clear Ix Iy
+        % make derivative blurs
+        [g1x g1y] = meshgrid(-6*der1scale(dx):6*der1scale(dx),-6*der1scale(dx):6*der1scale(dx));
+        derivgauss1 = exp(-(g1x.^2+g1y.^2)/(2*der1scale(dx)^2));
+        derivgauss1 = derivgauss1./sqrt(sum(sum(derivgauss1.^2)));
+        % make derivative kernels
+        deriv1x = conv2(derivgauss1,[-.5, 0, .5]);
+        deriv2x = conv2(derivgauss2,[.25, 0, -.5, 0, .25]);
+        deriv1y = conv2(derivgauss1,[-.5, 0, .5]');
+        deriv2y = conv2(derivgauss2,[.25, 0, -.5, 0, .25]');
+        % take spatial derivs
+        for i = 2:zo-1 % first and last ims never have valid It
+            Ix(:,:,i) = conv2(I(:,:,i),deriv1x,'same');
+            Iy(:,:,i) = conv2(I(:,:,i),deriv1y,'same');
+        end
+        % trim edge pixels for convolutions
+        xtrim = max(length(deriv1x),length(deriv2x));
+        ytrim = max(length(deriv1y),length(deriv2y));
+        trim = @(I) I(1+xtrim:end-xtrim,1+ytrim:end-ytrim,:);
+        Ix = trim(Ix); Ixx = trim(Ixx); Iy = trim(Iy); Iyy = trim(Iyy);
+        % xIx and yIy
+        [h w z] = size(Ix);
+        x = -w/2:w/2-1; y = -h/2:h/2-1;
+        % camera calibration: move central pixel
+        cx = 599.5; cy = 959.5; % central pixel from calibration
+        offx = floor(ho/2-cx); offy = floor(wo/2-cy);
+        [X Y] = meshgrid(x-offx,y-offy,ones(1,z));
+        xIx = X.*Ix; yIy = Y.*Iy;
+
+        for dt = 2:length(timescale)
+            dxx, dx, dt
             % take time derivative
             It = (circshift(I,[0 0 timescale(dt)]) - ...
                   circshift(I,[0 0 -timescale(dt)]))/(2*timescale(dt)); % could also smooth over time?
-            % make derivative blurs
-            [g1x g1y] = meshgrid(-6*der1scale(dx):6*der1scale(dx),-6*der1scale(dx):6*der1scale(dx));
-            derivgauss1 = exp(-(g1x.^2+g1y.^2)/(2*der1scale(dx)^2));
-            derivgauss1 = derivgauss1./sqrt(sum(sum(derivgauss1.^2)));
-            [g2x g2y] = meshgrid(-6*der2scale(dxx):6*der2scale(dxx),-6*der2scale(dxx):6*der2scale(dxx));
-            derivgauss2 = exp(-(g2x.^2+g2y.^2)/(2*der2scale(dxx)^2));
-            derivgauss2 = derivgauss2./sqrt(sum(sum(derivgauss2.^2)));
-            % make derivative kernels
-            deriv1x = conv2(derivgauss1,[-.5, 0, .5]);
-            deriv2x = conv2(derivgauss2,[.25, 0, -.5, 0, .25]);
-            deriv1y = conv2(derivgauss1,[-.5, 0, .5]');
-            deriv2y = conv2(derivgauss2,[.25, 0, -.5, 0, .25]');
-            % take spatial derivs
-            for i = 1+timescale(dt):size(I,3)-timescale(dt) % there should be a faster way
-                Ix(:,:,i-timescale(dt)) = conv2(I(:,:,i),deriv1x,'same');
-                Ixx(:,:,i-timescale(dt)) = conv2(I(:,:,i),deriv2x,'same');
-                Iy(:,:,i-timescale(dt)) = conv2(I(:,:,i),deriv1y,'same');
-                Iyy(:,:,i-timescale(dt)) = conv2(I(:,:,i),deriv2y,'same');
-            end
-            
-            % trim: edge pixels for convolutions, end images off It
-            xtrim = max(length(deriv1x),length(deriv2x));
-            ytrim = max(length(deriv1y),length(deriv2y));
-            trim = @(I) I(1+xtrim:end-xtrim,1+ytrim:end-ytrim,:);
-            It = trim(It); Ix = trim(Ix); Ixx = trim(Ixx); Iy = trim(Iy); Iyy = trim(Iyy);
-            It = It(:,:,1+timescale(dt):end-timescale(dt)); % keep only valid images
-
-            % xIx and yIy
-            [h w z] = size(Ix);
-            x = -w/2:w/2-1; y = -h/2:h/2-1;
-            % camera calibration: move central pixel
-            [ho wo zo] = size(I);
-            cx = 599.5; cy = 959.5; % central pixel from calibration
-            offx = floor(ho/2-cx); offy = floor(wo/2-cy);
-            [X Y] = meshgrid(x-offx,y-offy,ones(1,z));
-            xIx = X.*Ix; yIy = Y.*Iy;
-
+            It = trim(It);
             % solve equation for u (eq 44)
 %             thresh = 0:max(max(max(abs(It))))/100:max(max(max(abs(It))))*.3;
 %             for t = 1:length(thresh)
@@ -88,8 +95,8 @@ for dt = 1:length(timescale)
 %                     % u = -u1x -u1y -u2 -u3
 %                 end
 %             end
-            for i = 1:z
-                ix = Ix(:,:,i); iy = Iy(:,:,i); xix = xIx(:,:,i); yiy = yIy(:,:,i); ixx = Ixx(:,:,i); iyy = Iyy(:,:,i); it = It(:,:,i);
+            for i = 1+timescale(dt):zo-timescale(dt)
+                ix = Ix(:,:,i); iy = Iy(:,:,i); xix = xIx(:,:,i-1); yiy = yIy(:,:,i-1); ixx = Ixx(:,:,i-1); iyy = Iyy(:,:,i-1); it = It(:,:,i);
                 spacederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)];
                 timederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[it(:)];
                 u(:,i) = spacederivs\timederivs;
@@ -102,7 +109,7 @@ for dt = 1:length(timescale)
             sigsq = 4;
             d(:,dt,dx,dxx) = (cEp/sigsq)*df*u2./((cEp/sigsq)*u2-u3);
         end
-        save('trial3','Sigsq','d','dtrue')
+        save('trial3','d','dtrue')
     end
 end
           
