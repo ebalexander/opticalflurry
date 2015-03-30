@@ -3,6 +3,7 @@ function analyzeims
 try
     % load images
     load('dataMar29'); % contains cornframes and centframes
+    load('trialMar29'); % contains previous data
 
     % scene params
     transdist = 0:.5:50; % image locations in translation stage mm
@@ -29,6 +30,7 @@ try
         end
         
         % precalculate time derivatives
+        clear It;
         for dt = 1:length(timescale)
             Dt = onedfirstderiv(timescale(dt));
             It(:,:,:,dt) = imfilter(I,permute(Dt,[3 1 2]),'same');
