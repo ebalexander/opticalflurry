@@ -1,137 +1,194 @@
 % analyze images from self-printed mask
+function analyzeims
+try
+    % load images
+    load('dataMar29'); % contains cornframes and centframes
 
-% load images
-transdist = 1568:5000:511568; % readout from translation stage, in microns
-for i = 1:38
-    I(:,:,i) = im2double(rgb2gray(imread(['~/opticalflurry/data/trial3/' int2str(transdist(i)) '.tif'])));
-end
-for i = 40:93
-    I(:,:,i) = im2double(rgb2gray(imread(['~/opticalflurry/data/trial3/' int2str(transdist(i)) '.tif'])));
-end
-for i = 95:length(transdist)
-    I(:,:,i) = im2double(rgb2gray(imread(['~/opticalflurry/data/trial3/' int2str(transdist(i)) '.tif'])));
-end
-I(:,:,39) = (I(:,:,38)+I(:,:,40))/2; % for left out images, take mean
-I(:,:,94) = (I(:,:,93)+I(:,:,95))/2;
+    % scene params
+    transdist = 0:.5:50; % image locations in translation stage mm
+    transdistf = 7; % translation stage coordinate (mm) of most-in-focus image, judged by eye
+    ds = -175; % mm, somewhat rough estimate
+    df = 233; % mm, from thin lens and ds, f = 100 mm
+    A = 51; % mm
+    prec = 4; % # sigmas in filter
+    cE = (ds*(A/prec)/df)^2; % camera constant
+    dtrue = df + (transdist - transdistf); % actual distances at which images were taken
 
-% scene params
-transdistf = 86568; % translation stage coordinate of most-in-focus image, judged by eye
-ds = -145; % mm, somewhat rough estimate
-df = 340; % mm, from thin lens and ds, f = 100 mm
-A = 50; % mm
-cEp = (ds*A/df)^2; % partial cE (cE = cEp/Sigma^2, Sigma not really known)
-dtrue = df + (transdist - transdistf)/10000;
-
-timescale = 1:50;
-der1scale = 1:5:46;
-der2scale = 1:10:41;
-for dxx = 1:length(der2scale)
-    clear Ixx Iyy
-    % make derivative blurs
-    [g2x g2y] = meshgrid(-6*der2scale(dxx):6*der2scale(dxx),-6*der2scale(dxx):6*der2scale(dxx));
-    derivgauss2 = exp(-(g2x.^2+g2y.^2)/(2*der2scale(dxx)^2));
-    derivgauss2 = derivgauss2./sqrt(sum(sum(derivgauss2.^2)));
-    % make derivative kernels
-    deriv2x = conv2(derivgauss2,[.25, 0, -.5, 0, .25]);
-    deriv2y = conv2(derivgauss2,[.25, 0, -.5, 0, .25]');
-    % take spatial derivs
-    [ho wo zo] = size(I);
-    for i = 2:zo-1 % first and last ims never have valid It
-        Ixx(:,:,i) = conv2(I(:,:,i),deriv2x,'same');
-        Iyy(:,:,i) = conv2(I(:,:,i),deriv2y,'same');
-    end
+    % derivative scales
+    timescale = 0:5:50;
+    der1scale = 0:5:45;
+    der2scale = 0:10:40;
     
-    for dx = 2:length(der1scale)
-        clear Ix Iy
-        % make derivative blurs
-        [g1x g1y] = meshgrid(-6*der1scale(dx):6*der1scale(dx),-6*der1scale(dx):6*der1scale(dx));
-        derivgauss1 = exp(-(g1x.^2+g1y.^2)/(2*der1scale(dx)^2));
-        derivgauss1 = derivgauss1./sqrt(sum(sum(derivgauss1.^2)));
-        % make derivative kernels
-        deriv1x = conv2(derivgauss1,[-.5, 0, .5]);
-        deriv2x = conv2(derivgauss2,[.25, 0, -.5, 0, .25]);
-        deriv1y = conv2(derivgauss1,[-.5, 0, .5]');
-        deriv2y = conv2(derivgauss2,[.25, 0, -.5, 0, .25]');
-        % take spatial derivs
-        for i = 2:zo-1 % first and last ims never have valid It
-            Ix(:,:,i) = conv2(I(:,:,i),deriv1x,'same');
-            Iy(:,:,i) = conv2(I(:,:,i),deriv1y,'same');
+   
+    % loop over image sets and derivative scales
+    for loc = 1:2 % center and corner patches
+        if loc == 1
+            I = im2double(centframes);
+        else
+            I = im2double(cornframes);
         end
-        % trim edge pixels for convolutions
-        xtrim = max(length(deriv1x),length(deriv2x));
-        ytrim = max(length(deriv1y),length(deriv2y));
-        trim = @(I) I(1+xtrim:end-xtrim,1+ytrim:end-ytrim,:);
-        Ix = trim(Ix); Ixx = trim(Ixx); Iy = trim(Iy); Iyy = trim(Iyy);
-        % xIx and yIy
-        [h w z] = size(Ix);
-        x = -w/2:w/2-1; y = -h/2:h/2-1;
-        % camera calibration: move central pixel
-        cx = 599.5; cy = 959.5; % central pixel from calibration
-        offx = floor(ho/2-cx); offy = floor(wo/2-cy);
-        [X Y] = meshgrid(x-offx,y-offy,ones(1,z));
-        xIx = X.*Ix; yIy = Y.*Iy;
+        
+        % precalculate time derivatives
+        for dt = 1:length(timescale)
+            Dt = onedfirstderiv(timescale(dt));
+            It(:,:,:,dt) = imfilter(I,permute(Dt,[3 1 2]),'same');
+        end
 
-        for dt = 2:length(timescale)
-            dxx, dx, dt
-            % take time derivative
-            It = (circshift(I,[0 0 timescale(dt)]) - ...
-                  circshift(I,[0 0 -timescale(dt)]))/(2*timescale(dt)); % could also smooth over time?
-            It = trim(It);
-            % solve equation for u (eq 44)
-%             thresh = 0:max(max(max(abs(It))))/100:max(max(max(abs(It))))*.3;
-%             for t = 1:length(thresh)
-%                 for i = 1:z
-%                     ix = reshape(Ix(:,:,i),[],1);
-%                     iy = reshape(Iy(:,:,i),[],1);
-%                     xix = reshape(xIx(:,:,i),[],1);
-%                     yiy = reshape(yIy(:,:,i),[],1);
-%                     ixx = reshape(Ixx(:,:,i),[],1);
-%                     iyy = reshape(Iyy(:,:,i),[],1);
-%                     it = reshape(It(:,:,i),[],1);
-%                     ind = abs(it)>thresh(t);
-%                     spacederivs = [ix(ind) iy(ind) xix(ind)+yiy(ind) ixx(ind)+iyy(ind)]'*[ix(ind) iy(ind) xix(ind)+yiy(ind) ixx(ind)+iyy(ind)];
-%                     timederivs = [ix(ind) iy(ind) xix(ind)+yiy(ind) ixx(ind)+iyy(ind)]'*[it(ind)];
-%                     u(t,i,:) = spacederivs\timederivs;
-%                     % u = -u1x -u1y -u2 -u3
-%                 end
-%             end
-            for i = 1+timescale(dt):zo-timescale(dt)
-                ix = Ix(:,:,i); iy = Iy(:,:,i); xix = xIx(:,:,i-1); yiy = yIy(:,:,i-1); ixx = Ixx(:,:,i-1); iyy = Iyy(:,:,i-1); it = It(:,:,i);
-                spacederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)];
-                timederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[it(:)];
-                u(:,i) = spacederivs\timederivs;
+        for dxx = 1:length(der2scale)
+            clear Ixx Iyy
+            % make derivative blurs - Szeliski 4.23
+            [D2x D2y] = secondderiv(der2scale(dxx));
+            % take spatial derivs
+            [ho wo zo] = size(I);
+            for i = 2:zo-1 % first and last ims never have valid It
+                Ixx(:,:,i) = conv2(I(:,:,i),D2x,'same');
+                Iyy(:,:,i) = conv2(I(:,:,i),D2y,'same');
             end
-            
-            % solve equation for d (eq 41)
-            u3 = -u(4,:); u2 = -u(3,:); % bad notation
-            %distcomp = @(sigsq) sum(sum(((cE/sigsq)*df*u2./(cE*u2-u3)-repmat(dtrue,[length(thresh),1])).^2));
-            %Sigsq(dt,dx,dxx) = fmincon(distcomp(sigsq),20,-1,0) % honestly kind of a guess, pick best sigma in least squares distance error sense
-            sigsq = 4;
-            d(:,dt,dx,dxx) = (cEp/sigsq)*df*u2./((cEp/sigsq)*u2-u3);
+
+            for dx = 1:length(der1scale)
+                clear Ix Iy
+                % make derivative kernels - Szeliski 4.21
+                [D1x,D1y] = firstderiv(der1scale(dx));
+                % take spatial derivs
+                for i = 2:zo-1 % first and last ims never have valid It
+                    Ix(:,:,i) = conv2(I(:,:,i),D1x,'same');
+                    Iy(:,:,i) = conv2(I(:,:,i),D1y,'same');
+                end
+                
+                % trim edge pixels for convolutions
+                xtrim = max(length(D1x),length(D2x));
+                ytrim = max(length(D1y),length(D2y));
+                trim = @(I) I(1+xtrim:end-xtrim,1+ytrim:end-ytrim,1:zo-1);
+                Ix = trim(Ix); Ixx = trim(Ixx); Iy = trim(Iy); Iyy = trim(Iyy);
+                
+                % xIx and yIy
+%                 [h w z] = size(Ix);
+%                 x = -w/2:w/2-1; y = -h/2:h/2-1;
+                % camera calibration: move central pixel
+%                 cx = 599.5; cy = 959.5; % central pixel from calibration
+%                 offx = floor(ho/2-cx); offy = floor(wo/2-cy);
+                collcentx = 960/2; % center pixels of collected data
+                collcenty = 600/2;
+                if loc == 1 % center
+                    collx = 330:520; % collected data in dumb region
+                    colly = 270:450;
+                else % corner
+                    collx = 1:100;
+                    colly = 1:100;
+                end
+                x = collx-collcentx; y = colly-collcenty;
+                offx = 0; offy = 0; % assume lens tube alignment
+                [X Y] = meshgrid(x-offx,y-offy,ones(1,zo));
+                X = trim(X); Y = trim(Y);
+                xIx = X.*Ix; yIy = Y.*Iy;
+
+                for dt = 1:length(timescale)
+                    dxx, dx, dt
+                    % take appropriately-sized time derivative
+                    It = trim(squeeze(It(:,:,:,dt)));
+                    % solve equation for u (eq 44) over different It
+                    % thresholds
+        %             thresh = 0:max(max(max(abs(It))))/100:max(max(max(abs(It))))*.3;
+        %             for t = 1:length(thresh)
+        %                 for i = 1:z
+        %                     ix = reshape(Ix(:,:,i),[],1);
+        %                     iy = reshape(Iy(:,:,i),[],1);
+        %                     xix = reshape(xIx(:,:,i),[],1);
+        %                     yiy = reshape(yIy(:,:,i),[],1);
+        %                     ixx = reshape(Ixx(:,:,i),[],1);
+        %                     iyy = reshape(Iyy(:,:,i),[],1);
+        %                     it = reshape(It(:,:,i),[],1);
+        %                     ind = abs(it)>thresh(t);
+        %                     spacederivs = [ix(ind) iy(ind) xix(ind)+yiy(ind) ixx(ind)+iyy(ind)]'*[ix(ind) iy(ind) xix(ind)+yiy(ind) ixx(ind)+iyy(ind)];
+        %                     timederivs = [ix(ind) iy(ind) xix(ind)+yiy(ind) ixx(ind)+iyy(ind)]'*[it(ind)];
+        %                     u(t,i,:) = spacederivs\timederivs;
+        %                     % u = -u1x -u1y -u2 -u3
+        %                 end
+        %             end
+                    dtlim = max(1,floor(ceil(7*timescale(dt))/2)); % half length of time deriv filter
+                    for i = 1+dtlim:zo-dtlim
+                        ix = Ix(:,:,i); iy = Iy(:,:,i); xix = xIx(:,:,i-1); yiy = yIy(:,:,i-1); ixx = Ixx(:,:,i-1); iyy = Iyy(:,:,i-1); it = It(:,:,i);
+                        spacederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)];
+                        timederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[it(:)];
+                        u(:,i) = spacederivs\timederivs;
+                    end
+
+                    % solve equation for d (eq 41)
+                    u3 = -u(4,:); u2 = -u(3,:); % bad notation
+                    d(:,dt,dx,dxx,loc) = (cE*df*u2./(cE*u2-u3));
+                    
+                save('trialMar29','d','dtrue')
+                msg = 'done with finite diffs'
+                end
+                save('trialMar29','d','dtrue')
+            end
+            notifyemma(['dx = ' num2str(dx) '/' num2str(length(der1scales))]);
         end
-        save('trial3','d','dtrue')
+        notifyemma(['dxx = ' num2str(dxx) '/' num2str(length(der2scales))]);
+    end
+    notifyemma('loc done');
+catch ME
+   a = ['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]
+%    notifyemma(['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]); 
+end
+end
+
+function [D1x,D1y] = firstderiv(sigma) % Szeliski eq 4.21
+    if sigma == 0
+        D1x = [-.5 0 .5];
+        D1y = D1x';
+    else
+        w = 2*floor(ceil(7*sigma)/2)+1;
+        [xx,yy] = meshgrid(-(w-1)/2:(w-1)/2,-(w-1)/2:(w-1)/2);
+        D1x = -xx/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D1y = -yy/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D1x=D1x./sum(D1x(:));
+        D1y=D1y./sum(D1y(:));
     end
 end
-          
+
+function [D2x,D2y] = secondderiv(sigma) % Szeliksi eq 4.23
+    if sigma == 0
+        D2x = [.25 0 -.5 0 .25];
+        D2y = D2x';
+    else
+        w = 2*floor(ceil(7*sigma)/2)+1;
+        [xx,yy] = meshgrid(-(w-1)/2:(w-1)/2,-(w-1)/2:(w-1)/2);
+        D2x = (1-xx.^2/(2*sigma^2))/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D2y = (1-yy.^2/(2*sigma^2))/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D2x=D2x./sum(D2x(:));
+        D2y=D2y./sum(D2y(:));
+    end
+end
+
+function D1t = onedfirstderiv(sigma)
+    if sigma == 0
+        D1t = [-.5 0 .5];
+    else
+         w = 2*floor(ceil(7*sigma)/2)+1;
+         xx = -(w-1)/2:(w-1)/2;
+         D1t = exp(-xx.^2/sigma^2);
+         D1t = D1t/sum(D1t);
+    end
+end
+
 % % compare to true dists in a meaningful way...
 % a = shiftdim(d,1); b = repmat(dtrue(2:end-1)',[1 16 24]);
 % percenterr = (a(:)-b(:))./b(:);
 % figure; hist(percenterr,100);
 
-% % show results
-% % dfromdf = -375:125:625;
-% dfromdf = -35:5:0;
-% % trued = df + dfromdf*.254; % convert 1/100ths of inches to mm
-% trued = df+dfromdf;
-% figure; hold on;
+% show results
+figure; hold on;
 % cmap = colormap(jet(length(thresh)));
 % for t = 1:length(thresh)
-%     plot(d(t,:),'Color',cmap(t,:));
+    plot(squeeze(d(:,:,:,:,2)))%,'Color',cmap(t,:));
 % end
-% plot(trued,'ok');
-% set(gca,'XTickLabel',int2str(dfromdf'));
-% xlabel(['distance (mm) from focal plane (' num2str(df) 'mm)']);
-% ylabel('reconstructed distance');
+plot(dtrue,'ok');
+set(gca,'XTick',1:25:length(dtrue));
+dists = int2str(dtrue');
+set(gca,'XTickLabel',dists(1:25:end,:));
+xlabel('true distance (mm)');
+ylabel('reconstructed distance');
 % colorbar;
 % 
 % % show images of derivatives
