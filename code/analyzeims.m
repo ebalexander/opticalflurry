@@ -59,7 +59,7 @@ try
                 xtrim = max(length(D1x),length(D2x));
                 ytrim = max(length(D1y),length(D2y));
                 trim = @(I) I(1+xtrim:end-xtrim,1+ytrim:end-ytrim,1:zo-1);
-                Ix = trim(Ix); Ixx = trim(Ixx); Iy = trim(Iy); Iyy = trim(Iyy);
+                Ix = trim(Ix); Ixx_temp = trim(Ixx); Iy = trim(Iy); Iyy_temp = trim(Iyy);
                 
                 % xIx and yIy
 %                 [h w z] = size(Ix);
@@ -83,9 +83,9 @@ try
                 xIx = X.*Ix; yIy = Y.*Iy;
 
                 for dt = 1:length(timescale)
-%                     dxx, dx, dt
+                    dxx, dx, dt
                     % take appropriately-sized time derivative
-                    It = trim(squeeze(It(:,:,:,dt)));
+                    It_temp = trim(squeeze(It(:,:,:,dt)));
                     % solve equation for u (eq 44) over different It
                     % thresholds
         %             thresh = 0:max(max(max(abs(It))))/100:max(max(max(abs(It))))*.3;
@@ -107,7 +107,10 @@ try
         %             end
                     dtlim = max(1,floor(ceil(7*timescale(dt))/2)); % half length of time deriv filter
                     for i = 1+dtlim:zo-dtlim
-                        ix = Ix(:,:,i); iy = Iy(:,:,i); xix = xIx(:,:,i-1); yiy = yIy(:,:,i-1); ixx = Ixx(:,:,i-1); iyy = Iyy(:,:,i-1); it = It(:,:,i);
+                        ix = Ix(:,:,i); iy = Iy(:,:,i); 
+                        xix = xIx(:,:,i-1); yiy = yIy(:,:,i-1);
+                        ixx = Ixx_temp(:,:,i-1); iyy = Iyy_temp(:,:,i-1);
+                        it = It_temp(:,:,i);
                         spacederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)];
                         timederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[it(:)];
                         u(:,i) = spacederivs\timederivs;
