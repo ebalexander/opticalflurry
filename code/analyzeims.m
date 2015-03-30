@@ -6,7 +6,7 @@ try
 
     % scene params
     transdist = 0:.5:50; % image locations in translation stage mm
-    transdistf = 7; % translation stage coordinate (mm) of most-in-focus image, judged by eye
+    transdistf = 17; % translation stage coordinate (mm) of most-in-focus image, judged by eye
     ds = -175; % mm, somewhat rough estimate
     df = 233; % mm, from thin lens and ds, f = 100 mm
     A = 51; % mm
@@ -83,7 +83,7 @@ try
                 xIx = X.*Ix; yIy = Y.*Iy;
 
                 for dt = 1:length(timescale)
-                    dxx, dx, dt
+%                     dxx, dx, dt
                     % take appropriately-sized time derivative
                     It = trim(squeeze(It(:,:,:,dt)));
                     % solve equation for u (eq 44) over different It
@@ -116,20 +116,16 @@ try
                     % solve equation for d (eq 41)
                     u3 = -u(4,:); u2 = -u(3,:); % bad notation
                     d(:,dt,dx,dxx,loc) = (cE*df*u2./(cE*u2-u3));
-                    
-                save('trialMar29','d','dtrue')
-                msg = 'done with finite diffs'
                 end
                 save('trialMar29','d','dtrue')
             end
-            notifyemma(['dx = ' num2str(dx) '/' num2str(length(der1scales))]);
         end
-        notifyemma(['dxx = ' num2str(dxx) '/' num2str(length(der2scales))]);
+        notifyemma(['dxx = ' num2str(dxx) '/' num2str(length(der2scale))]);
     end
     notifyemma('loc done');
 catch ME
    a = ['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]
-%    notifyemma(['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]); 
+  notifyemma(['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]); 
 end
 end
 
@@ -177,20 +173,20 @@ end
 % percenterr = (a(:)-b(:))./b(:);
 % figure; hist(percenterr,100);
 
-% show results
-figure; hold on;
-% cmap = colormap(jet(length(thresh)));
-% for t = 1:length(thresh)
-    plot(squeeze(d(:,:,:,:,2)))%,'Color',cmap(t,:));
-% end
-plot(dtrue,'ok');
-set(gca,'XTick',1:25:length(dtrue));
-dists = int2str(dtrue');
-set(gca,'XTickLabel',dists(1:25:end,:));
-xlabel('true distance (mm)');
-ylabel('reconstructed distance');
-% colorbar;
-% 
+% % show results
+% figure; hold on;
+% % cmap = colormap(jet(length(thresh)));
+% % for t = 1:length(thresh)
+%     plot(squeeze(d(:,:,:,:,2)))%,'Color',cmap(t,:));
+% % end
+% plot(dtrue(2:end-1),'ok');
+% set(gca,'XTick',1:25:length(dtrue(2:end-1)));
+% dists = int2str(dtrue(2:end-1)');
+% set(gca,'XTickLabel',dists(2:25:end-1,:));
+% xlabel('true distance (mm)');
+% ylabel('reconstructed distance');
+% % colorbar;
+% % 
 % % show images of derivatives
 % for t = 1:length(dfromdf);
 %     h = figure; 
