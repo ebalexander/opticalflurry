@@ -1,29 +1,44 @@
 % analyze images from self-printed mask
-function analyzeims
+function analyzeims(data,filename)
+
+locnot = 0;
+errnot = 1;
+
 try
     % load images
-    load('dataMar29'); % contains cornframes and centframes
-    load('trialMar29'); % contains previous data
+    load(data); % contains cornframes and centframes
+%     load(filename); % contains previous data
 
+    % initialize bag of scales
+    [ho wo zo] = size(cornframes);
+    sderivs = zeros([2,2,zo]);
+    tderivs = zeros([2,1,zo]);
+    
     % scene params
     transdist = 0:.5:50; % image locations in translation stage mm
     transdistf = 17; % translation stage coordinate (mm) of most-in-focus image, judged by eye
     ds = -175; % mm, somewhat rough estimate
     df = 233; % mm, from thin lens and ds, f = 100 mm
-    A = 51; % mm
-    prec = 4; % # sigmas in filter
+    A = 50.8; % mm
+    prec = 6; % # sigmas in filter
     cE = (ds*(A/prec)/df)^2; % camera constant
     dtrue = df + (transdist - transdistf); % actual distances at which images were taken
 
-    % derivative scales
-    timescale = 0:5:50;
-    der1scale = 0:5:45;
-    der2scale = 0:10:40;
+%     % derivative scales Mar 29
+%     timescale = 0:5:50;
+%     der1scale = 0:5:45;
+%     der2scale = 0:10:40;
     
+    % derivative scales Mar 30
+    timescale = 0:.5:3;
+    der1scale = 0:.5:3;
+    der2scale = 0:.5:3;
    
     % loop over image sets and derivative scales
     for loc = 1:2 % center and corner patches
-        if loc == 1
+        if loc == 0
+            I = im2double(fullframes);
+        elseif loc == 1
             I = im2double(centframes);
         else
             I = im2double(cornframes);
@@ -37,6 +52,9 @@ try
         end
 
         for dxx = 1:length(der2scale)
+%             if mod(dxx,5)==0
+%                 notifyemma(['dxx = ' num2str(dxx) '/' num2str(length(der2scale))]);
+%             end
             clear Ixx Iyy
             % make derivative blurs - Szeliski 4.23
             [D2x D2y] = secondderiv(der2scale(dxx));
@@ -69,14 +87,21 @@ try
                 % camera calibration: move central pixel
 %                 cx = 599.5; cy = 959.5; % central pixel from calibration
 %                 offx = floor(ho/2-cx); offy = floor(wo/2-cy);
-                collcentx = 960/2; % center pixels of collected data
-                collcenty = 600/2;
-                if loc == 1 % center
-                    collx = 330:520; % collected data in dumb region
-                    colly = 270:450;
+                collcentx = 600/2; % center pixels of collected data
+                collcenty = 960/2;
+                if loc == 0 % fullframes
+                    collx = 1:600;
+                    colly = 1:960;
+                elseif loc == 1 % center
+%                     collx = 250:350; % Mar 31
+%                     colly = 430:530;
+                    collx = 200:400; % Apr 1
+                    colly = 380:580;        
                 else % corner
-                    collx = 1:100;
-                    colly = 1:100;
+%                     collx = 1:100; % Mar 31
+%                     colly = 1:100;
+                    collx = 1:200; % Apr 1
+                    colly = 1:200;
                 end
                 x = collx-collcentx; y = colly-collcenty;
                 offx = 0; offy = 0; % assume lens tube alignment
@@ -113,24 +138,35 @@ try
                         xix = xIx(:,:,i-1); yiy = yIy(:,:,i-1);
                         ixx = Ixx_temp(:,:,i-1); iyy = Iyy_temp(:,:,i-1);
                         it = It_temp(:,:,i);
-                        spacederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)];
-                        timederivs = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)]'*[it(:)];
+%                         dvec = [ix(:) iy(:) xix(:)+yiy(:) ixx(:)+iyy(:)];
+                        dvec = [xix(:)+yiy(:) ixx(:)+iyy(:)]; % set betaxdot, betaydot = 0
+                        spacederivs = dvec'*dvec;
+                        timederivs = dvec'*[it(:)];
                         u(:,i) = spacederivs\timederivs;
+                        sderivs(:,:,i) = sderivs(:,:,i) + spacederivs;
+                        tderivs(:,:,i) = tderivs(:,:,i) + timederivs; 
+                        uacc(:,i) = sderivs(:,:,i)\tderivs(:,:,i);
                     end
-
                     % solve equation for d (eq 41)
-                    u3 = -u(4,:); u2 = -u(3,:); % bad notation
+%                     u3 = -u(4,:); u2 = -u(3,:); % bad notation
+                    u3 = -u(2,:); u2 = -u(1,:); % from betadot = 0;
                     d(:,dt,dx,dxx,loc) = (cE*df*u2./(cE*u2-u3));
+%                     u3acc = -uacc(4,:); u2acc = -uacc(3,:); % bad notation
+                    u3acc = -uacc(2,:); u2acc = -uacc(1,:);
+                    dacc(:,dt,dx,dxx,loc) = (cE*df*u2acc./(cE*u2acc-u3acc));                       
                 end
-                save('trialMar29','d','dtrue')
+                save(filename,'d','dtrue','dacc')
             end
         end
-        notifyemma(['dxx = ' num2str(dxx) '/' num2str(length(der2scale))]);
+        if locnot
+            notifyemma(['loc ' num2str(loc) ' done']);
+        end
     end
-    notifyemma('loc done');
 catch ME
    a = ['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]
-  notifyemma(['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]); 
+   if errnot
+        notifyemma(['line ' num2str(ME.stack.line) ', fn ' ME.stack.name ': ' ME.message]); 
+   end
 end
 end
 
@@ -141,10 +177,10 @@ function [D1x,D1y] = firstderiv(sigma) % Szeliski eq 4.21
     else
         w = 2*floor(ceil(7*sigma)/2)+1;
         [xx,yy] = meshgrid(-(w-1)/2:(w-1)/2,-(w-1)/2:(w-1)/2);
-        D1x = -xx/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
-        D1y = -yy/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
-        D1x=D1x./sum(D1x(:));
-        D1y=D1y./sum(D1y(:));
+        D1x = -xx/(sigma^2).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D1y = -yy/(sigma^2).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D1x=-D1x./sum(abs(D1x(:))); % negative flips coords
+        D1y=-D1y./sum(abs(D1y(:))); % negative flips coords
     end
 end
 
@@ -153,23 +189,24 @@ function [D2x,D2y] = secondderiv(sigma) % Szeliksi eq 4.23
         D2x = [.25 0 -.5 0 .25];
         D2y = D2x';
     else
-        w = 2*floor(ceil(7*sigma)/2)+1;
+        w = 4*floor(ceil(7*sigma)/2)+1;
         [xx,yy] = meshgrid(-(w-1)/2:(w-1)/2,-(w-1)/2:(w-1)/2);
-        D2x = (1-xx.^2/(2*sigma^2))/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
-        D2y = (1-yy.^2/(2*sigma^2))/(sigma^4).*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
-        D2x=D2x./sum(D2x(:));
-        D2y=D2y./sum(D2y(:));
+        D2x = (xx.^2 - sigma^2)/sigma^4.*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D2y = (yy.^2 - sigma^2)/sigma^4.*exp(-0.5*(xx.^2+yy.^2)/(sigma^2));
+        D2x=D2x./sum(abs(D2x(:)));
+        D2y=D2y./sum(abs(D2y(:)));
     end
 end
 
 function D1t = onedfirstderiv(sigma)
     if sigma == 0
-        D1t = [-.5 0 .5];
+         D1t = [-.5 0 .5];
     else
          w = 2*floor(ceil(7*sigma)/2)+1;
          xx = -(w-1)/2:(w-1)/2;
          D1t = exp(-xx.^2/sigma^2);
-         D1t = D1t/sum(D1t);
+         D1t = -xx.*exp(-xx.^2/sigma^2);
+         D1t = D1t/sum(abs(D1t));
     end
 end
 
